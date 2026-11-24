@@ -1,54 +1,68 @@
-// The Vacuum's Alibi entry (Node 22, standard library only, no network).
+// The Vacuum's Alibi — entry program.
 //
-// The finished line is entry.txt beside this file. It was written in this
-// session as the entry itself: one line of at most 200 characters, the
-// excuse a robot vacuum gives for missing a spot. This program copies it
-// to the output directory and verifies the copy, so two runs write
-// byte-identical output.
+// A robot vacuum's excuse lives in entry.txt next to this file. This
+// program is the only thing the grader runs: it reads that line, checks
+// it against the bounty gate, copies it to the output folder, and then
+// proves the copy matches the original byte for byte.
 //
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+// Run it outside the grader like this:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+//
+// It needs nothing but the Node standard library and no network at all.
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = dirname(fileURLToPath(import.meta.url));
-const source = join(root, 'entry.txt');
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-const target = join(outDir, 'entry.txt');
-
-if (!existsSync(source)) {
-  throw new Error(`missing entry text: ${source}`);
-}
-const text = readFileSync(source, 'utf8');
-
-// The gate: UTF-8 text of 1 to 200 characters, counted as Unicode code
-// points, and not only white space.
-const length = [...text].length;
-if (length < 1 || length > 200) {
-  throw new Error(`entry.txt is ${length} characters, outside the 1-200 limit`);
-}
-if (text.trim().length === 0) {
-  throw new Error('entry.txt is only white space');
+function fail(message) {
+  throw new Error(message);
 }
 
-// The brief asks for a single line: no line break may hide inside the text.
-if (/[\r\n]/.test(text)) {
-  throw new Error('entry.txt must be a single line (no line breaks)');
+function readEntryText() {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const source = join(here, 'entry.txt');
+  if (!existsSync(source)) {
+    fail(`cannot find the entry text at ${source}`);
+  }
+  return { here, source, text: readFileSync(source, 'utf8') };
 }
 
-mkdirSync(outDir, { recursive: true });
-copyFileSync(source, target);
-
-// Verify the copy is byte-identical to the source text.
-const digest = (path: string): string =>
-  createHash('sha256').update(readFileSync(path)).digest('hex');
-if (digest(source) !== digest(target)) {
-  throw new Error('output differs from entry.txt');
+function checkGate(text) {
+  // Count code points, not UTF-16 units, so an emoji would count once.
+  const chars = [...text].length;
+  if (chars < 1 || chars > 200) {
+    fail(`entry is ${chars} characters, but the gate wants 1 to 200`);
+  }
+  if (text.trim() === '') {
+    fail('entry is blank');
+  }
+  // The bounty wants one line: a hidden line break would smuggle in a
+  // second line, so reject any carriage return or newline outright.
+  if (/[\r\n]/.test(text)) {
+    fail('entry must be a single line with no line breaks');
+  }
+  return chars;
 }
-console.log(
-  `wrote ${target} (${length} characters, ${Buffer.byteLength(text, 'utf8')} bytes, ` +
-    `sha256 ${digest(target).slice(0, 16)}...)`,
-);
+
+function main() {
+  const { source, text } = readEntryText();
+  const chars = checkGate(text);
+  const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+  const target = join(outDir, 'entry.txt');
+
+  mkdirSync(outDir, { recursive: true });
+  copyFileSync(source, target);
+
+  const sha = (path) =>
+    createHash('sha256').update(readFileSync(path)).digest('hex');
+  if (sha(source) !== sha(target)) {
+    fail('the copied entry does not match entry.txt');
+  }
+  console.log(
+    `wrote ${target}: ${chars} characters, ` +
+      `${Buffer.byteLength(text, 'utf8')} bytes, sha256 ${sha(target).slice(0, 16)}...`,
+  );
+}
+
+main();
